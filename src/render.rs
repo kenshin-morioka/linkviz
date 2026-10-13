@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use crate::link::{Link, Status};
+use crate::link::{Kind, Link, Status};
 
 pub struct Style {
     pub color: bool,
@@ -108,31 +108,25 @@ fn row_line(row: &Row, width: usize, style: &Style) -> String {
 }
 
 fn status_label(status: &Status, style: &Style) -> String {
-    match status {
-        Status::Linked => style.paint("32", "✓"),
-        Status::NotLinked => style.paint("33", "not linked"),
-        Status::SourceMissing => style.paint("31", "source missing"),
-        Status::WrongTarget(target) => {
-            style.paint("31", &format!("points to {}", target.display()))
-        }
-        Status::NotSymlink => style.paint("31", "exists, not a symlink"),
-        Status::Unreadable(error) => style.paint("31", &format!("error: {error}")),
+    style.paint(kind_color(status.kind()), &status.label())
+}
+
+fn kind_color(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Ok => "32",
+        Kind::Pending => "33",
+        Kind::Problem => "31",
     }
 }
 
 fn summary(links: &[Link], style: &Style) -> String {
-    let linked = links.iter().filter(|l| l.status.is_ok()).count();
-    let not_linked = links
-        .iter()
-        .filter(|l| l.status == Status::NotLinked)
-        .count();
-    let problems = links.len() - linked - not_linked;
+    let count = |kind: Kind| links.iter().filter(|l| l.status.kind() == kind).count();
     format!(
         "{} links: {}, {}, {}",
         links.len(),
-        style.paint("32", &format!("{linked} linked")),
-        style.paint("33", &format!("{not_linked} not linked")),
-        style.paint("31", &format!("{problems} problems")),
+        style.paint("32", &format!("{} linked", count(Kind::Ok))),
+        style.paint("33", &format!("{} not linked", count(Kind::Pending))),
+        style.paint("31", &format!("{} problems", count(Kind::Problem))),
     )
 }
 

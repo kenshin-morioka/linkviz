@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>linkviz</title>
+<style>
+:root {
+  --bg: #f4f5f8;
+  --fg: #171b24;
+  --muted: #697386;
+  --panel: rgba(255, 255, 255, 0.82);
+  --border: #dde1e8;
+  --grid: rgba(23, 27, 36, 0.07);
+  --tree: rgba(105, 115, 134, 0.45);
+  --home: #5b5bd6;
+  --repo: #0e9fb8;
+  --ok: #1f9d55;
+  --pending: #d98a0b;
+  --problem: #e0393e;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a0d14;
+    --fg: #e6e9f0;
+    --muted: #8a94a8;
+    --panel: rgba(16, 20, 30, 0.8);
+    --border: #222a38;
+    --grid: rgba(230, 233, 240, 0.05);
+    --tree: rgba(138, 148, 168, 0.4);
+    --home: #8b8cff;
+    --repo: #2fd4ef;
+    --ok: #3ee07f;
+    --pending: #ffc23d;
+    --problem: #ff5c61;
+  }
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+body {
+  background-image: radial-gradient(circle at 1px 1px, var(--grid) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+header {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+}
+h1 { margin: 0; font-size: 15px; letter-spacing: 0.02em; }
+.paths { color: var(--muted); font: 12px var(--mono); }
+.spacer { flex: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.chip:hover { border-color: var(--muted); }
+.chip[aria-pressed="true"] { border-color: var(--fg); background: var(--border); }
+.chip i { width: 8px; height: 8px; border-radius: 50%; }
+svg { display: block; width: 100vw; height: 100vh; cursor: grab; touch-action: none; }
+svg.panning { cursor: grabbing; }
+.tree { fill: none; stroke: var(--tree); stroke-width: 1.2; }
+.link { fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 5 7; animation: flow 1.4s linear infinite; }
+.link.ok { stroke: var(--ok); }
+.link.pending { stroke: var(--pending); }
+.link.problem { stroke: var(--problem); stroke-width: 2.4; }
+.glow { filter: url(#glow); }
+@keyframes flow { to { stroke-dashoffset: -12; } }
+@media (prefers-reduced-motion: reduce) { .link { animation: none; } }
+.side-title { font: 600 11px var(--mono); letter-spacing: 0.18em; fill: var(--muted); }
+.node { cursor: pointer; }
+.node circle { stroke: var(--bg); stroke-width: 2; }
+.node text {
+  font: 12px var(--mono);
+  fill: var(--fg);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+.node.dir text { fill: var(--muted); }
+.node.root text { font-size: 16px; font-weight: 700; }
+.dimmed { opacity: 0.1; }
+.tree, .link, .node { transition: opacity 0.15s; }
+#tip {
+  position: fixed;
+  z-index: 2;
+  display: none;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+  font: 12px/1.5 var(--mono);
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+.hint { position: fixed; left: 16px; bottom: 14px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>linkviz</h1>
+  <span class="paths" id="paths"></span>
+  <span class="spacer"></span>
+  <div class="chips" id="chips"></div>
+</header>
+<svg id="graph">
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g id="viewport">
+    <g id="titles"></g>
+    <g id="tree-edges"></g>
+    <g id="link-edges" class="glow"></g>
+    <g id="nodes"></g>
+  </g>
+</svg>
+<div id="tip"></div>
+<div class="hint">drag to pan · scroll to zoom · hover to trace · click a status to filter · double-click to refit</div>
+<script>
+const DATA = /*LINKVIZ_DATA*/null;
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const KIND_ORDER = { ok: 0, pending: 1, problem: 2 };
+const KIND_LABEL = { ok: "linked", pending: "not linked", problem: "problems" };
+// Horizontal layout: root ─ dir columns ─ leaf column ══ links ══ leaf column ─ dir columns ─ root
+const ROW = 22;
+const LINK_GAP = 520;
+const LABEL_GAP = 260;
+const DIR_COL = 130;
+const SIDE_SIGN = { home: -1, repo: 1 };
+
+const svg = document.getElementById("graph");
+const viewport = document.getElementById("viewport");
+const tip = document.getElementById("tip");
+
+// ---- graph model --------------------------------------------------------
+
+const nodes = new Map();
+const treeEdges = [];
+const linkEdges = [];
+
+function getNode(id, props) {
+  if (!nodes.has(id)) {
+    nodes.set(id, { id, x: 0, y: 0, depth: 0, children: [], links: [], parent: null, ...props });
+  }
+  return nodes.get(id);
+}
+
+function addPath(side, rootLabel, path) {
+  let parent = getNode(side, { side, label: rootLabel, path: "" });
+  let acc = "";
+  for (const part of path.split("/")) {
+    acc = acc ? `${acc}/${part}` : part;
+    const id = `${side}:${acc}`;
+    const isNew = !nodes.has(id);
+    const node = getNode(id, { side, label: part, path: acc, depth: parent.depth + 1 });
+    if (isNew) {
+      node.parent = parent;
+      parent.children.push(node);
+      treeEdges.push({ a: parent, b: node });
+    }
+    parent = node;
+  }
+  return parent;
+}
+
+for (const link of DATA.links) {
+  const a = addPath("home", DATA.home, link.dest);
+  const b = addPath("repo", DATA.root, link.source);
+  const edge = { ...link, a, b };
+  a.links.push(edge);
+  b.links.push(edge);
+  linkEdges.push(edge);
+}
+
+const all = [...nodes.values()];
+for (const node of all) {
+  node.type = !node.parent ? "root" : node.children.length === 0 ? "leaf" : "dir";
+}
+
+function worstKind(links) {
+  return links.reduce((worst, l) => (KIND_ORDER[l.kind] > KIND_ORDER[worst] ? l.kind : worst), "ok");
+}
+
+function fullPath(node) {
+  const root = node.side === "home" ? DATA.home : DATA.root;
+  return node.path ? `${root}/${node.path}` : root;
+}
+
+// ---- layout ----------------------------------------------------------------
+
+function placeRows(node, order, counter) {
+  const children = order(node);
+  if (children.length === 0) {
+    node.y = counter.row++ * ROW;
+    return;
+  }
+  children.forEach((child) => placeRows(child, order, counter));
+  node.y = (children[0].y + children[children.length - 1].y) / 2;
+}
+
+function average(values) {
+  return values.length ? values.reduce((sum, v) => sum + v, 0) / values.length : 0;
+}
+
+// Ordering each repo subtree by where its links land on the home side keeps the curves from crossing.
+function barycenter(node) {
+  node.children.forEach(barycenter);
+  const ys = node.children.length
+    ? node.children.map((child) => child.barycenter)
+    : node.links.map((link) => link.a.y);
+  node.barycenter = average(ys);
+}
+
+function center(side) {
+  const ys = all.filter((n) => n.side === side).map((n) => n.y);
+  const offset = (Math.min(...ys) + Math.max(...ys)) / 2;
+  all.filter((n) => n.side === side).forEach((n) => { n.y -= offset; });
+}
+
+function placeColumns(side) {
+  const sideNodes = all.filter((n) => n.side === side);
+  const deepestDir = Math.max(0, ...sideNodes.filter((n) => n.type !== "leaf").map((n) => n.depth));
+  const sign = SIDE_SIGN[side];
+  for (const node of sideNodes) {
+    node.x = node.type === "leaf"
+      ? sign * (LINK_GAP / 2)
+      : sign * (LINK_GAP / 2 + LABEL_GAP + (deepestDir - node.depth) * DIR_COL);
+  }
+}
+
+const homeRoot = nodes.get("home");
+const repoRoot = nodes.get("repo");
+if (homeRoot && repoRoot) {
+  placeRows(homeRoot, (n) => [...n.children].sort((a, b) => a.label.localeCompare(b.label)), { row: 0 });
+  barycenter(repoRoot);
+  placeRows(repoRoot, (n) => [...n.children].sort((a, b) => a.barycenter - b.barycenter), { row: 0 });
+  center("home");
+  center("repo");
+  placeColumns("home");
+  placeColumns("repo");
+}
+
+// ---- rendering -----------------------------------------------------------
+
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  parent.appendChild(e);
+  return e;
+}
+
+function curve(a, b) {
+  const mx = (a.x + b.x) / 2;
+  return `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+}
+
+for (const edge of treeEdges) {
+  edge.el = el("path", { class: "tree", d: curve(edge.a, edge.b) }, document.getElementById("tree-edges"));
+}
+for (const edge of linkEdges) {
+  edge.el = el("path", { class: `link ${edge.kind}`, d: curve(edge.a, edge.b) }, document.getElementById("link-edges"));
+}
+
+for (const node of all) {
+  const g = el("g", { class: `node ${node.type}`, transform: `translate(${node.x},${node.y})` }, document.getElementById("nodes"));
+  const radius = node.type === "root" ? 10 : node.type === "dir" ? 4.5 : 6;
+  const fill =
+    node.type === "root" ? `var(--${node.side})`
+    : node.type === "dir" ? "var(--tree)"
+    : node.side === "home" ? `var(--${worstKind(node.links)})`
+    : "var(--repo)";
+  el("circle", { r: radius, fill }, g);
+  const text = el("text", { dy: "0.35em" }, g);
+  text.textContent = node.type === "dir" ? `${node.label}/` : node.label;
+  if (node.type === "dir") {
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("y", -12);
+  } else {
+    // Point labels away from the link area so they never sit under the curves.
+    const outward = SIDE_SIGN[node.side];
+    text.setAttribute("text-anchor", outward < 0 ? "end" : "start");
+    text.setAttribute("x", outward * (radius + 7));
+  }
+  node.el = g;
+  bindNode(node);
+}
+
+for (const side of ["home", "repo"]) {
+  const sideNodes = all.filter((n) => n.side === side);
+  if (sideNodes.length === 0) continue;
+  const top = Math.min(...sideNodes.map((n) => n.y)) - 48;
+  const title = el("text", { class: "side-title", x: SIDE_SIGN[side] * (LINK_GAP / 2), y: top, "text-anchor": "middle" }, document.getElementById("titles"));
+  title.textContent = side === "home" ? "HOME" : "DOTFILES";
+}
+
+// ---- highlighting --------------------------------------------------------
+
+function descendants(node, out = new Set()) {
+  out.add(node);
+  node.children.forEach((child) => descendants(child, out));
+  return out;
+}
+
+function withAncestors(node, out) {
+  for (let n = node; n; n = n.parent) out.add(n);
+}
+
+function linksUnder(node) {
+  const links = new Set();
+  for (const n of descendants(node)) n.links.forEach((l) => links.add(l));
+  return [...links];
+}
+
+function highlight(links, extraNodes = []) {
+  if (!links) {
+    for (const item of [...treeEdges, ...linkEdges, ...all]) item.el.classList.remove("dimmed");
+    return;
+  }
+  const keep = new Set();
+  extraNodes.forEach((n) => withAncestors(n, keep));
+  for (const link of links) {
+    withAncestors(link.a, keep);
+    withAncestors(link.b, keep);
+  }
+  const keepLinks = new Set(links);
+  for (const node of all) node.el.classList.toggle("dimmed", !keep.has(node));
+  for (const edge of treeEdges) edge.el.classList.toggle("dimmed", !(keep.has(edge.a) && keep.has(edge.b)));
+  for (const edge of linkEdges) edge.el.classList.toggle("dimmed", !keepLinks.has(edge));
+}
+
+let activeKind = null;
+
+function restoreHighlight() {
+  highlight(activeKind ? linkEdges.filter((l) => l.kind === activeKind) : null);
+}
+
+// ---- tooltip -------------------------------------------------------------
+
+function describe(node) {
+  if (node.type !== "leaf") {
+    const links = linksUnder(node);
+    const counts = Object.keys(KIND_ORDER)
+      .map((kind) => [kind, links.filter((l) => l.kind === kind).length])
+      .filter(([, n]) => n > 0)
+      .map(([kind, n]) => `${n} ${KIND_LABEL[kind]}`);
+    return `${fullPath(node)}/\n${links.length} links: ${counts.join(", ")}`;
+  }
+  const lines = node.links.map((l) =>
+    node.side === "home"
+      ? `→ ${DATA.root}/${l.source}\n  ${l.status}  (line ${l.line})`
+      : `← ${DATA.home}/${l.dest}\n  ${l.status}  (line ${l.line})`
+  );
+  return [fullPath(node), ...lines].join("\n");
+}
+
+function moveTip(event) {
+  const x = Math.min(event.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+  const y = Math.min(event.clientY + 14, window.innerHeight - tip.offsetHeight - 8);
+  tip.style.left = `${x}px`;
+  tip.style.top = `${y}px`;
+}
+
+// ---- interaction ---------------------------------------------------------
+
+let view = { x: 0, y: 0, k: 1 };
+let panning = null;
+
+function applyView() {
+  viewport.setAttribute("transform", `translate(${view.x},${view.y}) scale(${view.k})`);
+}
+
+function bindNode(node) {
+  node.el.addEventListener("pointerenter", (event) => {
+    if (panning) return;
+    highlight(linksUnder(node), [node]);
+    tip.textContent = describe(node);
+    tip.style.display = "block";
+    moveTip(event);
+  });
+  node.el.addEventListener("pointermove", moveTip);
+  node.el.addEventListener("pointerleave", () => {
+    tip.style.display = "none";
+    if (!panning) restoreHighlight();
+  });
+}
+
+svg.addEventListener("pointerdown", (event) => {
+  panning = { x: event.clientX - view.x, y: event.clientY - view.y };
+  svg.classList.add("panning");
+  svg.setPointerCapture(event.pointerId);
+});
+
+svg.addEventListener("pointermove", (event) => {
+  if (!panning) return;
+  view.x = event.clientX - panning.x;
+  view.y = event.clientY - panning.y;
+  applyView();
+});
+
+svg.addEventListener("pointerup", () => {
+  panning = null;
+  svg.classList.remove("panning");
+});
+
+svg.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  const factor = Math.exp(-event.deltaY * 0.0015);
+  const k = Math.min(Math.max(view.k * factor, 0.2), 4);
+  const f = k / view.k;
+  view.x = event.clientX - (event.clientX - view.x) * f;
+  view.y = event.clientY - (event.clientY - view.y) * f;
+  view.k = k;
+  applyView();
+}, { passive: false });
+
+svg.addEventListener("dblclick", fit);
+window.addEventListener("resize", fit);
+
+function fit() {
+  if (all.length === 0) return;
+  const box = viewport.getBBox();
+  const top = document.querySelector("header").getBoundingClientRect().bottom + 16;
+  const width = window.innerWidth - 32;
+  const height = window.innerHeight - top - 40;
+  // Never shrink below a readable size; taller graphs are panned instead.
+  const k = Math.max(Math.min(width / box.width, height / box.height, 1.4), 0.75);
+  const fitsVertically = box.height * k <= height;
+  view = {
+    k,
+    x: window.innerWidth / 2 - (box.x + box.width / 2) * k,
+    y: fitsVertically ? top + height / 2 - (box.y + box.height / 2) * k : top - box.y * k,
+  };
+  applyView();
+}
+
+// ---- header ----------------------------------------------------------------
+
+document.getElementById("paths").textContent = `${DATA.homePath}  ⇢  ${DATA.rootPath}`;
+
+const chips = document.getElementById("chips");
+for (const kind of Object.keys(KIND_ORDER)) {
+  const count = linkEdges.filter((l) => l.kind === kind).length;
+  const chip = document.createElement("button");
+  chip.className = "chip";
+  chip.setAttribute("aria-pressed", "false");
+  const dot = document.createElement("i");
+  dot.style.background = `var(--${kind})`;
+  chip.append(dot, `${count} ${KIND_LABEL[kind]}`);
+  chip.addEventListener("click", () => {
+    activeKind = activeKind === kind ? null : kind;
+    for (const other of chips.children) other.setAttribute("aria-pressed", "false");
+    chip.setAttribute("aria-pressed", String(activeKind === kind));
+    restoreHighlight();
+  });
+  chips.appendChild(chip);
+}
+
+fit();
+</script>
+</body>
+</html>

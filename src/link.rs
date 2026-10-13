@@ -25,9 +25,42 @@ pub enum Status {
     Unreadable(String),
 }
 
+/// How a status should be presented: fine, waiting for `link`, or needing attention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Ok,
+    Pending,
+    Problem,
+}
+
+impl Kind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Kind::Ok => "ok",
+            Kind::Pending => "pending",
+            Kind::Problem => "problem",
+        }
+    }
+}
+
 impl Status {
-    pub fn is_ok(&self) -> bool {
-        *self == Status::Linked
+    pub fn kind(&self) -> Kind {
+        match self {
+            Status::Linked => Kind::Ok,
+            Status::NotLinked => Kind::Pending,
+            _ => Kind::Problem,
+        }
+    }
+
+    pub fn label(&self) -> String {
+        match self {
+            Status::Linked => "✓".to_string(),
+            Status::NotLinked => "not linked".to_string(),
+            Status::SourceMissing => "source missing".to_string(),
+            Status::WrongTarget(target) => format!("points to {}", target.display()),
+            Status::NotSymlink => "exists, not a symlink".to_string(),
+            Status::Unreadable(error) => format!("error: {error}"),
+        }
     }
 }
 
