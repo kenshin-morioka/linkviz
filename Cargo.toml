@@ -1,0 +1,16 @@
+[package]
+name = "linkviz"
+version = "0.1.0"
+edition = "2024"
+description = "Visualize a dotfiles symlink definition file as a tree with link status"
+license = "MIT"
+repository = "https://github.com/kenshin-morioka/linkviz"
+readme = "README.md"
+keywords = ["dotfiles", "symlink", "tree", "cli"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
