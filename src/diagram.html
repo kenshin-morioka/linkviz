@@ -105,7 +105,6 @@ svg.panning { cursor: grabbing; }
 .link.problem { stroke: var(--problem); stroke-width: 2.4; }
 .glow { filter: url(#glow); }
 @keyframes flow { to { stroke-dashoffset: -12; } }
-@media (prefers-reduced-motion: reduce) { .link { animation: none; } }
 .side-title { font: 600 11px var(--mono); letter-spacing: 0.18em; fill: var(--muted); }
 .node { cursor: pointer; }
 .node circle { stroke: var(--bg); stroke-width: 2; }
@@ -121,6 +120,12 @@ svg.panning { cursor: grabbing; }
 .node.root text { font-size: 16px; font-weight: 700; }
 .dimmed { opacity: 0.1; }
 .tree, .link, .node { transition: opacity 0.15s; }
+.node:focus { outline: none; }
+.node:focus-visible circle { stroke: var(--fg); stroke-width: 3; }
+@media (prefers-reduced-motion: reduce) {
+  .link { animation: none; }
+  .tree, .link, .node { transition: none; }
+}
 #tip {
   position: fixed;
   z-index: 2;
@@ -327,7 +332,8 @@ for (const edge of linkEdges) {
   edge.el = el("path", { class: `link ${edge.kind}`, d: curve(edge.a, edge.b), stroke: edge.color }, document.getElementById("link-edges"));
 }
 
-for (const node of all) {
+// Create nodes column by column, left to right, so Tab moves through them in reading order.
+for (const node of [...all].sort((a, b) => a.x - b.x || a.y - b.y)) {
   const g = el("g", { class: `node ${node.type}`, transform: `translate(${node.x},${node.y})` }, document.getElementById("nodes"));
   const radius = node.type === "root" ? 10 : node.type === "dir" ? 4.5 : 6;
   const fill =
@@ -418,11 +424,23 @@ function describe(node) {
   return [fullPath(node), ...lines].join("\n");
 }
 
-function moveTip(event) {
-  const x = Math.min(event.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
-  const y = Math.min(event.clientY + 14, window.innerHeight - tip.offsetHeight - 8);
+function placeTip(clientX, clientY) {
+  const x = Math.min(clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+  const y = Math.min(clientY + 14, window.innerHeight - tip.offsetHeight - 8);
   tip.style.left = `${x}px`;
   tip.style.top = `${y}px`;
+}
+
+function showDetails(node, clientX, clientY) {
+  highlight(linksUnder(node), [node]);
+  tip.textContent = describe(node);
+  tip.style.display = "block";
+  placeTip(clientX, clientY);
+}
+
+function hideDetails() {
+  tip.style.display = "none";
+  restoreHighlight();
 }
 
 // ---- interaction ---------------------------------------------------------
@@ -435,18 +453,33 @@ function applyView() {
 }
 
 function bindNode(node) {
+  node.el.setAttribute("tabindex", "0");
+  node.el.setAttribute("aria-label", describe(node).replace(/\n\s*/g, ", "));
   node.el.addEventListener("pointerenter", (event) => {
-    if (panning) return;
-    highlight(linksUnder(node), [node]);
-    tip.textContent = describe(node);
-    tip.style.display = "block";
-    moveTip(event);
+    if (!panning) showDetails(node, event.clientX, event.clientY);
   });
-  node.el.addEventListener("pointermove", moveTip);
+  node.el.addEventListener("pointermove", (event) => placeTip(event.clientX, event.clientY));
   node.el.addEventListener("pointerleave", () => {
-    tip.style.display = "none";
-    if (!panning) restoreHighlight();
+    if (!panning) hideDetails();
   });
+  node.el.addEventListener("focus", () => {
+    bringIntoView(node);
+    const rect = node.el.getBoundingClientRect();
+    showDetails(node, rect.right, rect.bottom);
+  });
+  node.el.addEventListener("blur", hideDetails);
+}
+
+// Keyboard focus can land on a node that is panned off screen; recenter on it in that case.
+function bringIntoView(node) {
+  const rect = node.el.getBoundingClientRect();
+  const top = document.querySelector("header").getBoundingClientRect().bottom;
+  if (rect.left >= 0 && rect.right <= window.innerWidth && rect.top >= top && rect.bottom <= window.innerHeight) {
+    return;
+  }
+  view.x += window.innerWidth / 2 - (rect.left + rect.right) / 2;
+  view.y += (top + window.innerHeight) / 2 - (rect.top + rect.bottom) / 2;
+  applyView();
 }
 
 svg.addEventListener("pointerdown", (event) => {

@@ -5,7 +5,7 @@ mod render;
 
 use std::env;
 use std::fs;
-use std::io::{self, IsTerminal};
+use std::io::{self, IsTerminal, Write};
 use std::path::{self, Path, PathBuf};
 use std::process::{Command, ExitCode};
 
@@ -120,10 +120,18 @@ fn dir_name(path: &Path) -> String {
     )
 }
 
-/// Writes to a fixed temp path so repeated runs overwrite instead of piling up files.
+/// The temp dir may be shared between users (e.g. `/tmp` on Linux), so each run creates a fresh,
+/// owner-only file with a random name instead of reusing a predictable path that others could
+/// pre-create or symlink. The file is kept for the browser and left to the OS temp cleanup.
 fn open_in_browser(html: &str) -> Result<PathBuf, String> {
-    let path = env::temp_dir().join("linkviz.html");
-    fs::write(&path, html).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut file = tempfile::Builder::new()
+        .prefix("linkviz-")
+        .suffix(".html")
+        .tempfile()
+        .map_err(|e| format!("failed to create a temp file: {e}"))?;
+    file.write_all(html.as_bytes())
+        .map_err(|e| format!("{}: {e}", file.path().display()))?;
+    let (_, path) = file.keep().map_err(|e| e.to_string())?;
     let opener = if cfg!(target_os = "macos") {
         "open"
     } else {
