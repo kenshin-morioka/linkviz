@@ -452,6 +452,13 @@ function applyView() {
   viewport.setAttribute("transform", `translate(${view.x},${view.y}) scale(${view.k})`);
 }
 
+let focusedNode = null;
+
+function showFocusedDetails() {
+  const rect = focusedNode.el.getBoundingClientRect();
+  showDetails(focusedNode, rect.right, rect.bottom);
+}
+
 function bindNode(node) {
   node.el.setAttribute("tabindex", "0");
   node.el.setAttribute("aria-label", describe(node).replace(/\n\s*/g, ", "));
@@ -459,15 +466,24 @@ function bindNode(node) {
     if (!panning) showDetails(node, event.clientX, event.clientY);
   });
   node.el.addEventListener("pointermove", (event) => placeTip(event.clientX, event.clientY));
+  // Hovering is temporary: once the pointer leaves, fall back to the keyboard-focused node if any.
   node.el.addEventListener("pointerleave", () => {
-    if (!panning) hideDetails();
+    if (panning) return;
+    if (focusedNode) {
+      showFocusedDetails();
+    } else {
+      hideDetails();
+    }
   });
   node.el.addEventListener("focus", () => {
+    focusedNode = node;
     bringIntoView(node);
-    const rect = node.el.getBoundingClientRect();
-    showDetails(node, rect.right, rect.bottom);
+    showFocusedDetails();
   });
-  node.el.addEventListener("blur", hideDetails);
+  node.el.addEventListener("blur", () => {
+    focusedNode = null;
+    hideDetails();
+  });
 }
 
 // Keyboard focus can land on a node that is panned off screen; recenter on it in that case.
