@@ -66,20 +66,20 @@ fn run(cli: Cli) -> Result<String, String> {
             .unwrap_or(Path::new("."))
             .to_path_buf(),
     };
-    let home_env = env::var_os("HOME").map(PathBuf::from);
+    let home_given = cli.home.is_some();
     let home = cli
         .home
-        .or_else(|| home_env.clone())
+        .or_else(|| env::var_os("HOME").map(PathBuf::from))
         .ok_or("HOME is not set; pass --home")?;
     // Links are created with absolute source paths, so compare against absolute paths too.
     let root = path::absolute(&root).map_err(|e| format!("{}: {e}", root.display()))?;
     let home = path::absolute(&home).map_err(|e| format!("{}: {e}", home.display()))?;
 
     let links = link::resolve(&rules, &root, &home);
-    let root_label = if Some(&home) == home_env.as_ref() {
-        "~".to_string()
-    } else {
+    let root_label = if home_given {
         home.display().to_string()
+    } else {
+        "~".to_string()
     };
     let style = Style {
         color: use_color(cli.color),

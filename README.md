@@ -57,6 +57,7 @@ linkviz [FILE] [--root DIR] [--home DIR] [--color auto|always|never]
 | `source missing` | source does not exist |
 | `points to <path>` | dest is a symlink to somewhere else |
 | `exists, not a symlink` | dest is a regular file or directory |
+| `error: <message>` | dest or source could not be inspected (e.g. permission denied) |
 | `⚠ also defined on line N` | another line resolves to the same dest |
 
 ## License

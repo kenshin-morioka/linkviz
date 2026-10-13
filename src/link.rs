@@ -34,36 +34,41 @@ impl Status {
 pub fn resolve(rules: &[Rule], root: &Path, home: &Path) -> Vec<Link> {
     rules
         .iter()
-        .flat_map(|rule| {
-            expand(rule, root).into_iter().map(|(dest, source)| Link {
+        .flat_map(|rule| match expand(rule, root) {
+            Ok(pairs) => pairs
+                .into_iter()
+                .map(|(dest, source)| Link {
+                    line: rule.line,
+                    status: status(&home.join(&dest), &root.join(&source)),
+                    dest,
+                    source,
+                })
+                .collect(),
+            // Keep the unexpanded pattern so the failure stays visible in the output.
+            Err(e) => vec![Link {
                 line: rule.line,
-                status: status(&home.join(&dest), &root.join(&source)),
-                dest,
-                source,
-            })
+                dest: rule.dest.clone().into(),
+                source: rule.source.clone().into(),
+                status: source_error(e),
+            }],
         })
         .collect()
 }
 
 /// Expands `dir/*` into one pair per entry, skipping dotfiles like a default shell glob.
-fn expand(rule: &Rule, root: &Path) -> Vec<(PathBuf, PathBuf)> {
+fn expand(rule: &Rule, root: &Path) -> io::Result<Vec<(PathBuf, PathBuf)>> {
     if !is_glob(&rule.source) {
-        return vec![(rule.dest.clone().into(), rule.source.clone().into())];
+        return Ok(vec![(rule.dest.clone().into(), rule.source.clone().into())]);
     }
     let dest_dir = glob_parent(&rule.dest);
     let source_dir = glob_parent(&rule.source);
-    // An unreadable directory keeps the pattern as-is so it surfaces as "source missing"
-    // instead of silently disappearing from the output.
-    let Ok(entries) = fs::read_dir(root.join(source_dir)) else {
-        return vec![(rule.dest.clone().into(), rule.source.clone().into())];
-    };
-    let mut names: Vec<_> = entries
+    let mut names: Vec<_> = fs::read_dir(root.join(source_dir))?
         .filter_map(Result::ok)
         .map(|entry| entry.file_name())
         .filter(|name| !name.to_string_lossy().starts_with('.'))
         .collect();
     names.sort();
-    names
+    Ok(names
         .into_iter()
         .map(|name| {
             (
@@ -71,7 +76,7 @@ fn expand(rule: &Rule, root: &Path) -> Vec<(PathBuf, PathBuf)> {
                 Path::new(source_dir).join(&name),
             )
         })
-        .collect()
+        .collect())
 }
 
 fn glob_parent(pattern: &str) -> &str {
@@ -82,8 +87,8 @@ fn glob_parent(pattern: &str) -> &str {
 }
 
 fn status(dest: &Path, source: &Path) -> Status {
-    if !source.exists() {
-        return Status::SourceMissing;
+    if let Err(e) = fs::metadata(source) {
+        return source_error(e);
     }
     let metadata = match fs::symlink_metadata(dest) {
         Ok(metadata) => metadata,
@@ -105,6 +110,14 @@ fn status(dest: &Path, source: &Path) -> Status {
         Status::Linked
     } else {
         Status::WrongTarget(target)
+    }
+}
+
+fn source_error(e: io::Error) -> Status {
+    if e.kind() == io::ErrorKind::NotFound {
+        Status::SourceMissing
+    } else {
+        Status::Unreadable(e.to_string())
     }
 }
 
@@ -232,6 +245,31 @@ mod tests {
         assert_eq!(
             statuses(&links),
             vec![(".claude/skills/*".into(), Status::SourceMissing)]
+        );
+    }
+
+    #[test]
+    fn reports_unreadable_source_as_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let f = Fixture::new();
+        f.file("locked/file");
+        let locked = f.root.join("locked");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        // Permission bits do not apply to root, so the scenario cannot be reproduced there.
+        let reproducible = fs::read_dir(&locked).is_err();
+
+        let links = f.resolve("file:locked/file\nskills/*:locked/*");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        if !reproducible {
+            return;
+        }
+        assert!(
+            links
+                .iter()
+                .all(|l| matches!(l.status, Status::Unreadable(_))),
+            "{links:?}"
         );
     }
 }
