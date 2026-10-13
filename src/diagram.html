@@ -18,6 +18,13 @@
   --ok: #1f9d55;
   --pending: #d98a0b;
   --problem: #e0393e;
+  /* Group hues stay clear of the red/amber/green status colors, ordered so neighbours contrast. */
+  --g1: #0891b2;
+  --g2: #c026d3;
+  --g3: #2563eb;
+  --g4: #db2777;
+  --g5: #6d4fe0;
+  --g6: #9b3fd6;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
@@ -34,6 +41,12 @@
     --ok: #3ee07f;
     --pending: #ffc23d;
     --problem: #ff5c61;
+    --g1: #22d3ee;
+    --g2: #e879f9;
+    --g3: #60a5fa;
+    --g4: #f472b6;
+    --g5: #a395ff;
+    --g6: #c084fc;
   }
 }
 * { box-sizing: border-box; }
@@ -88,7 +101,6 @@ svg { display: block; width: 100vw; height: 100vh; cursor: grab; touch-action: n
 svg.panning { cursor: grabbing; }
 .tree { fill: none; stroke: var(--tree); stroke-width: 1.2; }
 .link { fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 5 7; animation: flow 1.4s linear infinite; }
-.link.ok { stroke: var(--ok); }
 .link.pending { stroke: var(--pending); }
 .link.problem { stroke: var(--problem); stroke-width: 2.4; }
 .glow { filter: url(#glow); }
@@ -212,6 +224,17 @@ for (const node of all) {
   node.type = !node.parent ? "root" : node.children.length === 0 ? "leaf" : "dir";
 }
 
+// Healthy links are tinted by their top-level home directory so neighbouring curves can be told apart;
+// unhealthy ones keep the status color so they stand out.
+const GROUP_COLORS = 6;
+const groupOf = (link) => (link.dest.includes("/") ? link.dest.split("/")[0] : "");
+const groups = [...new Set(linkEdges.map(groupOf))].sort();
+for (const edge of linkEdges) {
+  edge.color = edge.kind === "ok"
+    ? `var(--g${(groups.indexOf(groupOf(edge)) % GROUP_COLORS) + 1})`
+    : `var(--${edge.kind})`;
+}
+
 function worstKind(links) {
   return links.reduce((worst, l) => (KIND_ORDER[l.kind] > KIND_ORDER[worst] ? l.kind : worst), "ok");
 }
@@ -286,6 +309,12 @@ function el(tag, attrs, parent) {
   return e;
 }
 
+// A leaf takes the color of its worst link, so a problem on either end is visible at a glance.
+function leafColor(node) {
+  const worst = worstKind(node.links);
+  return node.links.find((l) => l.kind === worst).color;
+}
+
 function curve(a, b) {
   const mx = (a.x + b.x) / 2;
   return `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
@@ -295,7 +324,7 @@ for (const edge of treeEdges) {
   edge.el = el("path", { class: "tree", d: curve(edge.a, edge.b) }, document.getElementById("tree-edges"));
 }
 for (const edge of linkEdges) {
-  edge.el = el("path", { class: `link ${edge.kind}`, d: curve(edge.a, edge.b) }, document.getElementById("link-edges"));
+  edge.el = el("path", { class: `link ${edge.kind}`, d: curve(edge.a, edge.b), stroke: edge.color }, document.getElementById("link-edges"));
 }
 
 for (const node of all) {
@@ -304,8 +333,7 @@ for (const node of all) {
   const fill =
     node.type === "root" ? `var(--${node.side})`
     : node.type === "dir" ? "var(--tree)"
-    : node.side === "home" ? `var(--${worstKind(node.links)})`
-    : "var(--repo)";
+    : leafColor(node);
   el("circle", { r: radius, fill }, g);
   const text = el("text", { dy: "0.35em" }, g);
   text.textContent = node.type === "dir" ? `${node.label}/` : node.label;
@@ -481,7 +509,9 @@ for (const kind of Object.keys(KIND_ORDER)) {
   chip.className = "chip";
   chip.setAttribute("aria-pressed", "false");
   const dot = document.createElement("i");
-  dot.style.background = `var(--${kind})`;
+  dot.style.background = kind === "ok"
+    ? "conic-gradient(var(--g1), var(--g2), var(--g3), var(--g4), var(--g5), var(--g6), var(--g1))"
+    : `var(--${kind})`;
   chip.append(dot, `${count} ${KIND_LABEL[kind]}`);
   chip.addEventListener("click", () => {
     activeKind = activeKind === kind ? null : kind;
