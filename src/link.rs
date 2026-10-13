@@ -62,11 +62,10 @@ fn expand(rule: &Rule, root: &Path) -> io::Result<Vec<(PathBuf, PathBuf)>> {
     }
     let dest_dir = glob_parent(&rule.dest);
     let source_dir = glob_parent(&rule.source);
-    let mut names: Vec<_> = fs::read_dir(root.join(source_dir))?
-        .filter_map(Result::ok)
-        .map(|entry| entry.file_name())
-        .filter(|name| !name.to_string_lossy().starts_with('.'))
-        .collect();
+    let mut names = fs::read_dir(root.join(source_dir))?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<io::Result<Vec<_>>>()?;
+    names.retain(|name| !name.to_string_lossy().starts_with('.'));
     names.sort();
     Ok(names
         .into_iter()
