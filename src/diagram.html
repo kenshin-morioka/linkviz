@@ -157,9 +157,10 @@ const KIND_ORDER = { ok: 0, pending: 1, problem: 2 };
 const KIND_LABEL = { ok: "linked", pending: "not linked", problem: "problems" };
 // Horizontal layout: root ─ dir columns ─ leaf column ══ links ══ leaf column ─ dir columns ─ root
 const ROW = 22;
-const LINK_GAP = 520;
-const LABEL_GAP = 260;
-const DIR_COL = 130;
+const LINK_GAP = 320;
+const DIR_COL = 90;
+// Approximate advance of a 12px monospace glyph, used to reserve room for leaf labels.
+const CHAR_WIDTH = 7.4;
 const SIDE_SIGN = { home: -1, repo: 1 };
 
 const svg = document.getElementById("graph");
@@ -253,12 +254,14 @@ function center(side) {
 
 function placeColumns(side) {
   const sideNodes = all.filter((n) => n.side === side);
+  const leaves = sideNodes.filter((n) => n.type === "leaf");
   const deepestDir = Math.max(0, ...sideNodes.filter((n) => n.type !== "leaf").map((n) => n.depth));
+  const labelGap = Math.max(0, ...leaves.map((n) => n.label.length)) * CHAR_WIDTH + 40;
   const sign = SIDE_SIGN[side];
   for (const node of sideNodes) {
     node.x = node.type === "leaf"
       ? sign * (LINK_GAP / 2)
-      : sign * (LINK_GAP / 2 + LABEL_GAP + (deepestDir - node.depth) * DIR_COL);
+      : sign * (LINK_GAP / 2 + labelGap + (deepestDir - node.depth) * DIR_COL);
   }
 }
 
