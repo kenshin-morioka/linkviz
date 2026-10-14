@@ -17,6 +17,16 @@ Visualize a dotfiles symlink definition file as a tree, with each link's state o
 6 links: 3 linked, 1 not linked, 2 problems
 ```
 
+### Network diagram
+
+`linkviz --open` renders the same links as an interactive diagram in your browser: the home tree on the left, the dotfiles tree on the right, and each symlink as a curve colored by its status.
+
+- Hover a file or directory to trace its links
+- Click a status in the header to show only those links
+- Drag to pan, scroll to zoom, double-click to refit
+
+The page is a single self-contained HTML file written to the system temp directory; nothing is loaded from the network.
+
 ## Install
 
 ```sh
@@ -26,13 +36,14 @@ cargo install --path .
 ## Usage
 
 ```sh
-linkviz [FILE] [--root DIR] [--home DIR] [--color auto|always|never]
+linkviz [FILE] [--root DIR] [--home DIR] [--color auto|always|never] [--open]
 ```
 
 - `FILE`: definition file (default: `symlinks.txt`)
 - `--root`: base directory of source paths (default: directory of `FILE`)
 - `--home`: base directory of dest paths (default: `$HOME`)
 - `--color`: `auto` respects `NO_COLOR` and whether stdout is a terminal
+- `--open`: open the network diagram in a browser instead of printing the tree
 
 ## Definition format
 
